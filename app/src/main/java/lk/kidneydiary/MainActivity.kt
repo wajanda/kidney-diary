@@ -11,18 +11,20 @@ import androidx.compose.runtime.mutableStateOf
 
 class MainActivity : ComponentActivity() {
     private val openLog = mutableStateOf<Pair<String, String>?>(null)
+    private val openTab = mutableStateOf<String?>(null)
 
     private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Repo.migrate(this)
         handle(intent)
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         Reminders.scheduleAll(this)
         Reminders.updateSummary(this)
-        setContent { KDTheme { AppRoot(openLog) } }
+        setContent { KDTheme { AppRoot(openLog, openTab) } }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -31,7 +33,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handle(i: Intent?) {
-        val meal = i?.getStringExtra("openLog") ?: return
+        if (i == null) return
+        i.getStringExtra("openTab")?.let { openTab.value = it; i.removeExtra("openTab") }
+        val meal = i.getStringExtra("openLog") ?: return
         openLog.value = meal to (i.getStringExtra("openDate") ?: today())
         i.removeExtra("openLog")
     }

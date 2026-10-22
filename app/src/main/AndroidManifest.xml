@@ -1,17 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The ONLY permissions this app asks for. See SECURITY.md. -->
-    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The ONLY permissions this app asks for. No internet: the app cannot send data anywhere. See SECURITY.md. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Lets the app open Samsung's own camera and voice input. The app itself gets no camera or microphone access. -->
+    <!-- Lets the app open Samsung's own voice input. The app itself gets no microphone access. -->
     <queries>
-        <intent>
-            <action android:name="android.media.action.IMAGE_CAPTURE" />
-        </intent>
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
         </intent>

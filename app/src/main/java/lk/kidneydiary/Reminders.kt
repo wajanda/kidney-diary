@@ -43,6 +43,7 @@ object Reminders {
     private const val ID_SUMMARY = 1
     private const val ID_INFO = 2
     private const val ID_WATER = 3
+    private const val ID_DATAPACK = 4
 
     private val OFFSETS = listOf(0L, 20L, 45L, 90L)
     private val WATER_SLOTS = listOf("11:00", "14:00", "17:00", "19:30")
@@ -70,7 +71,42 @@ object Reminders {
     fun scheduleAll(ctx: Context) {
         MEALS.forEach { scheduleBase(ctx, it) }
         WATER_SLOTS.indices.forEach { scheduleWater(ctx, it) }
+        scheduleDatapack(ctx)
     }
+
+    private fun scheduleDatapack(ctx: Context) {
+        val at = nextAt(LocalTime.of(9, 30))
+        val i = Intent(ctx, ReminderReceiver::class.java).putExtra("datapack", true)
+        val pi = PendingIntent.getBroadcast(ctx, 150, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        am(ctx).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at.toInstant().toEpochMilli(), pi)
+    }
+
+    /** Every morning from the 1st: reminds you to save last month's datapack until you do. */
+    fun onDatapack(ctx: Context) {
+        scheduleDatapack(ctx)
+        val prev = java.time.YearMonth.now().minusMonths(1).toString()
+        if (prev in Prefs.exportedMonths(ctx) || Store.load(ctx, prev).isEmpty()) return
+        val name = java.time.YearMonth.parse(prev).month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())
+        val n = Notification.Builder(ctx, CH_SOUND)
+            .setSmallIcon(R.drawable.ic_notify)
+            .setColor(0xFF0F766E.toInt())
+            .setContentTitle("Your $name datapack is ready")
+            .setContentText("Save it and upload it to your HEALTH project for Claude's monthly review.")
+            .setStyle(Notification.BigTextStyle().bigText("Save it and upload it to your HEALTH project for Claude's monthly review."))
+            .setContentIntent(openTab(ctx, "monthly"))
+            .setAutoCancel(true)
+            .build()
+        nm(ctx).notify(ID_DATAPACK, n)
+    }
+
+    private fun openTab(ctx: Context, tab: String): PendingIntent {
+        val i = Intent(ctx, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra("openTab", tab)
+        return PendingIntent.getActivity(ctx, 350, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    fun clearDatapackNotice(ctx: Context) = nm(ctx).cancel(ID_DATAPACK)
 
     private fun nextAt(t: LocalTime): ZonedDateTime {
         val now = ZonedDateTime.now()
@@ -147,7 +183,7 @@ object Reminders {
         val end = LocalTime.of(21, 30).toSecondOfDay()
         val frac = ((now.toSecondOfDay() - start).toFloat() / (end - start)).coerceIn(0f, 1f)
         val expected = (WATER_TARGET * frac).toInt()
-        val had = Prefs.water(ctx, today())
+        val had = Repo.water(ctx, today())
         if (had + 250 >= expected) return
         val left = (WATER_TARGET - had).coerceAtLeast(0)
         val n = Notification.Builder(ctx, CH_INFO)
@@ -235,7 +271,7 @@ object Reminders {
     fun updateSummary(ctx: Context) {
         val t = today()
         val meals = Prefs.loggedMeals(ctx, t).count { it in MEALS }
-        val water = Prefs.water(ctx, t)
+        val water = Repo.water(ctx, t)
         val n = Notification.Builder(ctx, CH_SUMMARY)
             .setSmallIcon(R.drawable.ic_notify)
             .setColor(0xFF0F766E.toInt())
@@ -253,6 +289,10 @@ object Reminders {
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
+        if (intent.getBooleanExtra("datapack", false)) {
+            Reminders.onDatapack(ctx)
+            return
+        }
         if (intent.hasExtra("water")) {
             Reminders.onWater(ctx, intent.getIntExtra("water", 0))
             return
@@ -275,8 +315,7 @@ class ActionReceiver : BroadcastReceiver() {
                         if (text.isNotBlank()) {
                             Reminders.cancel(ctx, meal)
                             val r = Repo.logText(ctx, meal, text, "Notification reply", date)
-                            val v = r.verdict.ifBlank { "Saved" }
-                            Reminders.info(ctx, "$meal saved: $v", r.note.ifBlank { r.title })
+                            Reminders.info(ctx, "$meal saved: ${r.verdict}", r.note)
                         }
                     }
                     Reminders.A_USUAL -> {
