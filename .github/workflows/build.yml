@@ -10,11 +10,11 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -24,7 +24,18 @@ jobs:
           gradle-version: "8.11.1"
 
       - name: Build the app
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease --no-daemon 2>&1 | tee build.log
+
+      # If the build fails, post the error lines on the commit so they can be read without the full log.
+      - name: Report build errors
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '```'; grep -E "^e: |error:|What went wrong|Could not|FAILURE|> " build.log | head -80; echo '```'; } > errors.md
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F body=@errors.md
 
       - name: Name the file
         run: cp app/build/outputs/apk/release/app-release.apk "KidneyDiary-1.0.${{ github.run_number }}.apk"
