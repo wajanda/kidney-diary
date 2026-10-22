@@ -145,7 +145,8 @@ fun Bar(label: String, right: String, frac: Float, good: Boolean) {
     }
 }
 
-fun configured(ctx: Context) = SecureStore.has(ctx, "claude") && SecureStore.has(ctx, "notion")
+fun configured(ctx: Context) = SecureStore.has(ctx, "notion")
+fun hasClaude(ctx: Context) = SecureStore.has(ctx, "claude")
 
 // ---------------- app shell ----------------
 
@@ -410,7 +411,20 @@ fun LogScreen(initialMeal: String, date: String, onDone: () -> Unit) {
         }
 
         val r = result
-        if (r == null) {
+        if (r == null && !hasClaude(ctx)) {
+            Button(
+                onClick = {
+                    finish {
+                        withContext(Dispatchers.IO) {
+                            Repo.save(ctx, Entry(date, nowHm(), meal, text, items = text.split(",").map { it.trim() }, via = "App"))
+                        }
+                    }
+                },
+                enabled = !busy && text.isNotBlank(),
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+            ) { Text("Save ${meal.lowercase()}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp) }
+            Text("Tip: ask Claude in your HEALTH project if you're unsure about a food. Add a Claude API key in Settings for instant checks here.", fontSize = 12.sp, color = Muted)
+        } else if (r == null) {
             Button(
                 onClick = {
                     scope.launch {
@@ -506,7 +520,7 @@ fun InsightsScreen() {
             Text("Orange = very salty day. Grey = nothing logged.", fontSize = 12.sp, color = Muted)
         }
 
-        Button(
+        if (hasClaude(ctx)) Button(
             onClick = {
                 scope.launch {
                     busy = true
@@ -552,7 +566,10 @@ fun SuggestScreen() {
             )
         }
 
-        if (days >= 7) {
+        if (!hasClaude(ctx)) {
+            Panel { Text("Meal plans and \"Ask Claude\" need a Claude API key (Settings). Until then, ask Claude in your HEALTH project.", color = Muted, fontSize = 14.sp) }
+        }
+        if (days >= 7 && hasClaude(ctx)) {
             val p = plan
             if (p == null) {
                 Button(
@@ -583,8 +600,8 @@ fun SuggestScreen() {
 
         if (error.isNotBlank()) Text(error, color = RedFg, fontSize = 13.sp)
 
-        Text("Ask Claude anything", fontWeight = FontWeight.Bold, color = Color(0xFF3E4A45))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (hasClaude(ctx)) Text("Ask Claude anything", fontWeight = FontWeight.Bold, color = Color(0xFF3E4A45))
+        if (hasClaude(ctx)) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 value = question, onValueChange = { question = it },
                 placeholder = { Text("Is wood apple juice OK for me?") }, modifier = Modifier.weight(1f),
@@ -614,7 +631,7 @@ fun SettingsScreen(onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     var claudeKey by remember { mutableStateOf("") }
     var notionKey by remember { mutableStateOf("") }
-    var hasClaude by remember { mutableStateOf(SecureStore.has(ctx, "claude")) }
+    var claudeSaved by remember { mutableStateOf(SecureStore.has(ctx, "claude")) }
     var hasNotion by remember { mutableStateOf(SecureStore.has(ctx, "notion")) }
     var db by remember { mutableStateOf(Prefs.notionDb(ctx)) }
     var page by remember { mutableStateOf(Prefs.profilePage(ctx)) }
@@ -626,7 +643,7 @@ fun SettingsScreen(onClose: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
 
     fun save() {
-        if (claudeKey.isNotBlank()) { SecureStore.put(ctx, "claude", claudeKey); claudeKey = ""; hasClaude = true }
+        if (claudeKey.isNotBlank()) { SecureStore.put(ctx, "claude", claudeKey); claudeKey = ""; claudeSaved = true }
         if (notionKey.isNotBlank()) { SecureStore.put(ctx, "notion", notionKey); notionKey = ""; hasNotion = true }
         fun notionId(s: String): String =
             Regex("[0-9a-fA-F]{32,}").findAll(s.substringBefore("?").replace("-", "")).lastOrNull()?.value?.takeLast(32) ?: s.trim()
@@ -654,8 +671,8 @@ fun SettingsScreen(onClose: () -> Unit) {
             Text("Your keys", fontWeight = FontWeight.ExtraBold)
             Text("Stored encrypted on this phone. Only ever sent to Claude and Notion.", fontSize = 12.sp, color = Muted)
             OutlinedTextField(
-                claudeKey, { claudeKey = it }, label = { Text(if (hasClaude) "Claude API key (saved)" else "Claude API key") },
-                placeholder = { Text(if (hasClaude) "Paste only to replace" else "sk-ant-…") },
+                claudeKey, { claudeKey = it }, label = { Text(if (claudeSaved) "Claude API key (saved)" else "Claude API key (optional)") },
+                placeholder = { Text(if (claudeSaved) "Paste only to replace" else "sk-ant-…") },
                 visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -714,7 +731,7 @@ fun SettingsScreen(onClose: () -> Unit) {
                     busy = true
                     val lines = mutableListOf<String>()
                     lines += try { withContext(Dispatchers.IO) { Notion.test(ctx) } } catch (e: Exception) { "Notion: ${e.message}" }
-                    lines += try { withContext(Dispatchers.IO) { Repo.testClaude(ctx) } } catch (e: Exception) { "Claude: ${e.message}" }
+                    lines += if (!hasClaude(ctx)) "Claude: no key (optional). In-app food checks are off." else try { withContext(Dispatchers.IO) { Repo.testClaude(ctx) } } catch (e: Exception) { "Claude: ${e.message}" }
                     status = lines.joinToString("\n")
                     busy = false
                 }
